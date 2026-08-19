@@ -1,2 +1,5 @@
 .venv/
 .idea/
+# Python bytecode cache
+**/__pycache__/
+*.pycпш
