@@ -1,12 +1,17 @@
 import logging
 from models import (
     BankAccount,
+    SavingsAccount,
+    PremiumAccount,
+    InvestmentAccount,
     Currency,
     AccountStatus,
     AccountFrozenError,
     AccountClosedError,
     InvalidOperationError,
-    InsufficientFundsError
+    InsufficientFundsError,
+    MinBalanceViolationError,
+    OverdraftLimitExceededError
 )
 
 # Настройка логирования: выводим уровень, время и сообщение
@@ -18,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger("BankDemo")
 
 
-def run_demonstration():
+def run_demonstration_day_one():
     logger.info("Запуск демонстрации базовой модели банковских счетов (День 1)")
     print("=" * 70)
 
@@ -100,5 +105,73 @@ def run_demonstration():
     logger.info("Демонстрация завершена. Все бизнес-правила отработали корректно.")
 
 
+def run_demonstration_day_two():
+    logger.info("Запуск демонстрации продвинутых типов счетов (День 2)")
+    print("=" * 80)
+
+    # 1. Тестирование SavingsAccount
+    print("\nЭТАП 1: Тестирование Сберегательного счета (SavingsAccount)")
+    savings = SavingsAccount("Игорь Николаев", Currency.RUB, min_balance=2000.0, interest_rate=0.08)
+    print(savings)  # Проверка __str__
+
+    savings.deposit(5000.0)
+
+    print("Попытка нарушить минимальный остаток (снять 6000 при балансе 7000 и лимите 2000)...")
+    try:
+        savings.withdraw(6000.0)
+    except MinBalanceViolationError as e:
+        logger.warning(f"Блокировка: {e}")
+
+    # Валидное снятие
+    savings.withdraw(3000.0)
+    # Начисление процентов
+    savings.apply_monthly_interest()
+    print(f"Информация: {savings.get_account_info()}")
+    print("-" * 80)
+
+    # 2. Тестирование PremiumAccount
+    print("\nЭТАП 2: Тестирование Премиум счета (PremiumAccount)")
+    premium = PremiumAccount("Ольга Бузова", Currency.USD, overdraft_limit=10000.0, monthly_fee=500.0)
+    print(premium)
+
+    # Уводим баланс в минус за счет овердрафта
+    logger.info("Снятие суммы, превышающей баланс, с использованием овердрафта")
+    premium.withdraw(4000.0)  # Баланс станет -4000.00
+
+    print("Попытка превысить лимит овердрафта (снять еще 10000)...")
+    try:
+        premium.withdraw(10000.0)
+    except OverdraftLimitExceededError as e:
+        logger.warning(f"Блокировка: {e}")
+
+    premium.charge_monthly_fee()  # Списание комиссии
+    print(f"Информация: {premium.get_account_info()}")
+    print("-" * 80)
+
+    # 3. Тестирование InvestmentAccount
+    print("\nЭТАП 3: Тестирование Инвестиционного счета (InvestmentAccount)")
+    invest = InvestmentAccount("Дмитрий Нагиев", Currency.CNY)
+    print(invest)
+
+    invest.deposit(20000.0)
+    # Покупка акций и ETF
+    invest.buy_asset("stocks", 5000.0, asset_price=150.0)
+    invest.buy_asset("etf", 3000.0, asset_price=300.0)
+
+    # Прогноз доходности портфеля
+    invest.project_yearly_growth(years=3, estimated_rate=0.15)
+    print(f"Информация: {invest.get_account_info()}")
+    print("=" * 80)
+
+    # 4. Демонстрация Полиморфизма
+    print("\nЭТАП 4: Демонстрация Полиморфизма")
+    accounts_list = [savings, premium, invest]
+    for acc in accounts_list:
+        # Вызов одинакового метода __str__ выдаст разный результат в зависимости от реального класса
+        print(f"Обработка через цикл полиморфизма -> {acc}")
+
+    logger.info("Демонстрация Дня 2 завершена.")
+
 if __name__ == "__main__":
-    run_demonstration()
+    run_demonstration_day_one()
+    run_demonstration_day_two()
