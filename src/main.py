@@ -172,6 +172,7 @@ def run_demonstration_day_two():
 
     logger.info("Демонстрация Дня 2 завершена.")
 
+
 if __name__ == "__main__":
     run_demonstration_day_one()
     run_demonstration_day_two()

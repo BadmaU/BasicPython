@@ -3,6 +3,15 @@ import uuid
 from abc import ABC, abstractmethod
 from enum import Enum
 
+from exceptions import (
+    AccountClosedError,
+    AccountFrozenError,
+    InsufficientFundsError,
+    InvalidOperationError,
+    MinBalanceViolationError,
+    OverdraftLimitExceededError,
+)
+
 class Currency(Enum):
     RUB = "RUB"
     USD = "USD"
@@ -15,17 +24,9 @@ class AccountStatus(Enum):
     FROZEN = "frozen"
     CLOSED = "closed"
 
-class AccountFrozenError(Exception): pass
-
-class AccountClosedError(Exception): pass
-
-class InvalidOperationError(Exception): pass
-
-class InsufficientFundsError(Exception): pass
-
-class MinBalanceViolationError(Exception): pass
-
-class OverdraftLimitExceededError(Exception): pass
+class ClientStatus(Enum):
+    ACTIVE = "active"
+    BLOCKED = "blocked"  # Для блокировки после 3 неверных попыток
 
 
 class AbstractAccount(ABC):
@@ -223,3 +224,189 @@ class InvestmentAccount(BankAccount):
         base_info = super().get_account_info()
         portfolio_str = ", ".join([f"{k}: {v:.2f}" for k, v in self.portfolio.items()])
         return f"{base_info} | Портфель -> [{portfolio_str}]"
+
+
+class AbstractAccount:
+    """Абстрактный класс счета"""
+    def __init__(self, owner_id: str, account_id: str = None, status: AccountStatus = AccountStatus.ACTIVE):
+        if not isinstance(status, AccountStatus):
+            raise InvalidOperationError("Неверный формат статуса.")
+
+        self.owner_id = owner_id  # Привязываем к ID клиента
+        self.account_id = account_id or f"ACC-{uuid.uuid4().hex[:8].upper()}"
+        self.status = status
+        self._balance = 0.0
+
+    @property
+    def balance(self) -> float:
+        return self._balance
+
+
+class BankAccount(AbstractAccount):
+    """Конкретный банковский счет"""
+
+    def __init__(self, owner_id: str, currency: Currency = Currency.RUB,
+                 account_id: str = None, status: AccountStatus = AccountStatus.ACTIVE):
+        super().__init__(owner_id, account_id, status)
+        if not isinstance(currency, Currency):
+            raise InvalidOperationError("Неверный формат валюты.")
+        self.currency = currency
+
+    def _validate_operation(self, amount: float) -> None:
+        if self.status == AccountStatus.FROZEN:
+            raise AccountFrozenError(f"Счёт {self.account_id} заморожен.")
+        if self.status == AccountStatus.CLOSED:
+            raise AccountClosedError(f"Счёт {self.account_id} закрыт.")
+        if not isinstance(amount, (int, float)):
+            raise InvalidOperationError("Сумма должна быть числом.")
+        if not math.isfinite(amount):
+            raise InvalidOperationError("Сумма операции должна быть конечным числом.")
+        if amount <= 0:
+            raise InvalidOperationError("Сумма должна быть строго больше нуля.")
+
+    def deposit(self, amount: float) -> None:
+        self._validate_operation(amount)
+        self._balance += float(amount)
+
+    def withdraw(self, amount: float) -> bool:
+        self._validate_operation(amount)
+        if self._balance < amount:
+            raise InsufficientFundsError(f"Недостаточно средств на счете {self.account_id}.")
+        self._balance -= float(amount)
+        return True
+
+
+class Client:
+    """1. Класс Client"""
+    def __init__(self, full_name: str, age: int, phone: str, pin: str):
+        if age < 18:
+            raise InvalidOperationError("Регистрация клиентов младше 18 лет запрещена.")
+
+        self.id = f"CLI-{uuid.uuid4().hex[:6].upper()}"
+        self.full_name = full_name
+        self.age = age
+        self.phone = phone
+        self._pin = pin  # Приватный ПИН-код для аутентификации
+
+        self.status = ClientStatus.ACTIVE
+        self.account_numbers = []  # Список номеров счетов клиента
+        self.failed_login_attempts = 0
+
+
+class Bank:
+    """2. Класс Bank с функциями защиты и аналитики"""
+    def __init__(self, name: str):
+        self.name = name
+        self.clients = {}  # id -> Client
+        self.accounts = {}  # account_id -> BankAccount
+        self.suspicious_log = []  # Лог подозрительных действий
+
+
+    def _check_maintenance_time(self):
+        """Запрет операций с 00:00 до 05:00"""
+        current_hour = datetime.now().hour
+        if 0 <= current_hour < 5:
+            raise MaintenanceTimeError("Технический перерыв. Операции запрещены с 00:00 до 05:00.")
+
+    def _log_suspicious(self, message: str):
+        """Пометка подозрительных действий"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] ⚠️ ВНИМАНИЕ: {message}"
+        self.suspicious_log.append(log_entry)
+        print(log_entry)
+
+    def add_client(self, full_name: str, age: int, phone: str, pin: str) -> Client:
+        """Регистрация нового клиента"""
+        client = Client(full_name, age, phone, pin)
+        self.clients[client.id] = client
+        return client
+
+    def authenticate_client(self, client_id: str, pin: str) -> bool:
+        """Аутентификация клиента с защитой от брутфорса"""
+        if client_id not in self.clients:
+            raise AuthenticationError("Клиент не найден.")
+
+        client = self.clients[client_id]
+
+        if client.status == ClientStatus.BLOCKED:
+            raise SecurityBlockError("Личный кабинет заблокирован из-за превышения попыток ввода ПИН-кода.")
+
+        if client._pin == pin:
+            client.failed_login_attempts = 0  # Сбрасываем счетчик при успехе
+            return True
+        else:
+            client.failed_login_attempts += 1
+            if client.failed_login_attempts >= 3:
+                client.status = ClientStatus.BLOCKED
+                self._log_suspicious(f"Клиент {client.id} ({client.full_name}) ЗАБЛОКИРОВАН. 3 неверных ввода ПИН.")
+                raise SecurityBlockError("Превышено число попыток! Личный кабинет заблокирован.")
+
+            raise AuthenticationError(f"Неверный ПИН-код. Осталось попыток: {3 - client.failed_login_attempts}")
+
+    def open_account(self, client_id: str, currency: Currency = Currency.RUB) -> BankAccount:
+        """Открытие счета для клиента"""
+        self._check_maintenance_time()
+        if client_id not in self.clients:
+            raise InvalidOperationError("Клиент не зарегистрирован в банке.")
+
+        client = self.clients[client_id]
+        if client.status == ClientStatus.BLOCKED:
+            raise SecurityBlockError("Невозможно открыть счет. Клиент заблокирован.")
+
+        account = BankAccount(owner_id=client_id, currency=currency)
+        self.accounts[account.account_id] = account
+        client.account_numbers.append(account.account_id)
+        return account
+
+    def close_account(self, account_id: str):
+        """Закрытие счета"""
+        self._check_maintenance_time()
+        if account_id not in self.accounts:
+            raise InvalidOperationError("Счет не найден.")
+
+        account = self.accounts[account_id]
+        if account.balance > 0:
+            self._log_suspicious(f"Попытка закрыть счет {account_id} с ненулевым балансом ({account.balance}).")
+            raise InvalidOperationError("Нельзя закрыть счет, пока на нем есть средства.")
+
+        account.status = AccountStatus.CLOSED
+
+    def freeze_account(self, account_id: str):
+        """Заморозка счета"""
+        if account_id not in self.accounts:
+            raise InvalidOperationError("Счет не найден.")
+        self.accounts[account_id].status = AccountStatus.FROZEN
+
+    def unfreeze_account(self, account_id: str):
+        """Разморозка счета"""
+        if account_id not in self.accounts:
+            raise InvalidOperationError("Счет не найден.")
+        self.accounts[account_id].status = AccountStatus.ACTIVE
+
+    def search_accounts(self, client_id: str) -> list[BankAccount]:
+        """Поиск всех счетов конкретного клиента"""
+        if client_id not in self.clients:
+            return []
+        return [self.accounts[acc_id] for acc_id in self.clients[client_id].account_numbers]
+
+    def get_total_balance(self, currency: Currency = Currency.RUB) -> float:
+        """Получить суммарный баланс всех активных счетов (в рамках одной валюты)"""
+        # Для простоты считаем сумму без конвертации, только по выбранной валюте
+        return sum(acc.balance for acc in self.accounts.values() if
+                   acc.currency == currency and acc.status != AccountStatus.CLOSED)
+
+    def get_clients_ranking(self) -> list[dict]:
+        """Рейтинг клиентов по общему объему средств на счетах (балансы суммируются независимо от валюты)"""
+        ranking = []
+        for client in self.clients.values():
+            client_accounts = self.search_accounts(client.id)
+            total_money = sum(acc.balance for acc in client_accounts)
+            ranking.append({
+                "id": client.id,
+                "name": client.full_name,
+                "total_balance": total_money
+            })
+        # Сортировка от большего к меньшему
+        return sorted(ranking, key=lambda x: x["total_balance"], reverse=True)
+
+
