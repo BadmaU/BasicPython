@@ -1,3 +1,4 @@
+import math
 import uuid
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -29,6 +30,8 @@ class OverdraftLimitExceededError(Exception): pass
 
 class AbstractAccount(ABC):
     def __init__(self, owner: str, account_id: str = None, status: AccountStatus = AccountStatus.ACTIVE):
+        if not isinstance(status, AccountStatus):
+            raise InvalidOperationError("Неверный формат статуса. Используйте класс AccountStatus.")
         self.account_id: str = account_id if account_id else str(uuid.uuid4())[:8]
         self.owner: str = owner
         self._balance: float = 0.0
@@ -77,6 +80,10 @@ class BankAccount(AbstractAccount):
 
         if not isinstance(amount, (int, float)):
             raise InvalidOperationError("Сумма должна быть числом.")
+
+        if not math.isfinite(amount):
+            raise InvalidOperationError("Сумма операции должна быть конечным числом.")
+
         if amount <= 0:
             raise InvalidOperationError("Сумма операции должна быть строго больше нуля.")
 
