@@ -331,12 +331,14 @@ class Bank:
 
     def freeze_account(self, account_id: str):
         """Заморозка счета"""
+        self._check_maintenance_time()
         if account_id not in self.accounts:
             raise InvalidOperationError("Счет не найден.")
         self.accounts[account_id].status = AccountStatus.FROZEN
 
     def unfreeze_account(self, account_id: str):
         """Разморозка счета"""
+        self._check_maintenance_time()
         if account_id not in self.accounts:
             raise InvalidOperationError("Счет не найден.")
         self.accounts[account_id].status = AccountStatus.ACTIVE
