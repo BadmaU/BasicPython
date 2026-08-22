@@ -1,15 +1,19 @@
 import math
 import uuid
 from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import Enum
 
 from exceptions import (
     AccountClosedError,
     AccountFrozenError,
+    AuthenticationError,
     InsufficientFundsError,
     InvalidOperationError,
+    MaintenanceTimeError,
     MinBalanceViolationError,
     OverdraftLimitExceededError,
+    SecurityBlockError,
 )
 
 class Currency(Enum):
@@ -37,6 +41,10 @@ class AbstractAccount(ABC):
         self.owner: str = owner
         self._balance: float = 0.0
         self.status: AccountStatus = status
+
+    @property
+    def balance(self) -> float:
+        return self._balance
 
     @abstractmethod
     def deposit(self, amount: float) -> None:
@@ -226,56 +234,6 @@ class InvestmentAccount(BankAccount):
         return f"{base_info} | Портфель -> [{portfolio_str}]"
 
 
-class AbstractAccount:
-    """Абстрактный класс счета"""
-    def __init__(self, owner_id: str, account_id: str = None, status: AccountStatus = AccountStatus.ACTIVE):
-        if not isinstance(status, AccountStatus):
-            raise InvalidOperationError("Неверный формат статуса.")
-
-        self.owner_id = owner_id  # Привязываем к ID клиента
-        self.account_id = account_id or f"ACC-{uuid.uuid4().hex[:8].upper()}"
-        self.status = status
-        self._balance = 0.0
-
-    @property
-    def balance(self) -> float:
-        return self._balance
-
-
-class BankAccount(AbstractAccount):
-    """Конкретный банковский счет"""
-
-    def __init__(self, owner_id: str, currency: Currency = Currency.RUB,
-                 account_id: str = None, status: AccountStatus = AccountStatus.ACTIVE):
-        super().__init__(owner_id, account_id, status)
-        if not isinstance(currency, Currency):
-            raise InvalidOperationError("Неверный формат валюты.")
-        self.currency = currency
-
-    def _validate_operation(self, amount: float) -> None:
-        if self.status == AccountStatus.FROZEN:
-            raise AccountFrozenError(f"Счёт {self.account_id} заморожен.")
-        if self.status == AccountStatus.CLOSED:
-            raise AccountClosedError(f"Счёт {self.account_id} закрыт.")
-        if not isinstance(amount, (int, float)):
-            raise InvalidOperationError("Сумма должна быть числом.")
-        if not math.isfinite(amount):
-            raise InvalidOperationError("Сумма операции должна быть конечным числом.")
-        if amount <= 0:
-            raise InvalidOperationError("Сумма должна быть строго больше нуля.")
-
-    def deposit(self, amount: float) -> None:
-        self._validate_operation(amount)
-        self._balance += float(amount)
-
-    def withdraw(self, amount: float) -> bool:
-        self._validate_operation(amount)
-        if self._balance < amount:
-            raise InsufficientFundsError(f"Недостаточно средств на счете {self.account_id}.")
-        self._balance -= float(amount)
-        return True
-
-
 class Client:
     """1. Класс Client"""
     def __init__(self, full_name: str, age: int, phone: str, pin: str):
@@ -353,7 +311,7 @@ class Bank:
         if client.status == ClientStatus.BLOCKED:
             raise SecurityBlockError("Невозможно открыть счет. Клиент заблокирован.")
 
-        account = BankAccount(owner_id=client_id, currency=currency)
+        account = BankAccount(owner=client_id, currency=currency)
         self.accounts[account.account_id] = account
         client.account_numbers.append(account.account_id)
         return account
